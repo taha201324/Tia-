@@ -23,12 +23,13 @@ jobs:
           cp "$SRC/pubspec.yaml" app/pubspec.yaml
           rm -rf app/lib && cp -r "$SRC/lib" app/lib
           cp -r "$SRC/assets" app/assets
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' app/android/app/src/main/AndroidManifest.xml
       - name: Build APK
         working-directory: app
         run: |
           flutter pub get
           dart run flutter_launcher_icons
-          flutter build apk --release
+          flutter build apk --release --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: tia-apk
