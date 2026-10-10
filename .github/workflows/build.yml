@@ -14,12 +14,15 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - name: Create Android project and add sources
+      - name: Unzip and create Android project
         run: |
+          ZIP=$(ls *.zip | head -1)
+          unzip -q -o "$ZIP" -d unzipped
+          SRC=$(dirname "$(find unzipped -name pubspec.yaml | head -1)")
           flutter create --platforms=android --project-name tia app
-          cp src/pubspec.yaml app/pubspec.yaml
-          rm -rf app/lib && cp -r src/lib app/lib
-          cp -r src/assets app/assets
+          cp "$SRC/pubspec.yaml" app/pubspec.yaml
+          rm -rf app/lib && cp -r "$SRC/lib" app/lib
+          cp -r "$SRC/assets" app/assets
       - name: Build APK
         working-directory: app
         run: |
