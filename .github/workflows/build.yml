@@ -23,7 +23,8 @@ jobs:
           cp "$SRC/pubspec.yaml" app/pubspec.yaml
           rm -rf app/lib && cp -r "$SRC/lib" app/lib
           cp -r "$SRC/assets" app/assets
-          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' app/android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application#' app/android/app/src/main/AndroidManifest.xml
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' app/android/app/build.gradle*
           sed -i 's#android:label="[^"]*"#android:label="Tia"#' app/android/app/src/main/AndroidManifest.xml
       - name: Build APK
         working-directory: app
