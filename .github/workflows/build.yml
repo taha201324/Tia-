@@ -24,6 +24,7 @@ jobs:
           rm -rf app/lib && cp -r "$SRC/lib" app/lib
           cp -r "$SRC/assets" app/assets
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' app/android/app/src/main/AndroidManifest.xml
+          sed -i 's#android:label="[^"]*"#android:label="Tia"#' app/android/app/src/main/AndroidManifest.xml
       - name: Build APK
         working-directory: app
         run: |
@@ -32,5 +33,5 @@ jobs:
           flutter build apk --release --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
       - uses: actions/upload-artifact@v4
         with:
-          name: tia-apk
+          name: Tia-apk
           path: app/build/app/outputs/flutter-apk/app-release.apk
