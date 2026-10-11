@@ -26,6 +26,26 @@ jobs:
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application#' app/android/app/src/main/AndroidManifest.xml
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' app/android/app/build.gradle*
           sed -i 's#android:label="[^"]*"#android:label="Tia"#' app/android/app/src/main/AndroidManifest.xml
+      - name: Raise compileSdk for all plugins
+        run: |
+          test -f app/android/build.gradle.kts
+          cat > /tmp/hack.kts <<'EOF2'
+          subprojects {
+              afterEvaluate {
+                  val ext = extensions.findByName("android")
+                  if (ext != null) {
+                      val m = ext.javaClass.methods.firstOrNull {
+                          (it.name == "setCompileSdk" || it.name == "compileSdkVersion" || it.name == "compileSdk") &&
+                              it.parameterCount == 1 &&
+                              (it.parameterTypes[0] == Int::class.javaPrimitiveType || it.parameterTypes[0] == Int::class.javaObjectType)
+                      }
+                      m?.invoke(ext, 36)
+                  }
+              }
+          }
+          EOF2
+          cat /tmp/hack.kts app/android/build.gradle.kts > /tmp/new.kts
+          mv /tmp/new.kts app/android/build.gradle.kts
       - name: Build APK
         working-directory: app
         run: |
