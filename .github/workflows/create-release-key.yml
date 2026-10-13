@@ -1,0 +1,44 @@
+
+name: Create Tia Release Key
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  create-key:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate release keystore
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -eu
+
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_PASSWORD"
+          test -n "$KEY_ALIAS"
+
+          keytool -genkeypair \
+            -keystore "$RUNNER_TEMP/tia-release.jks" \
+            -storepass "$STORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -keyalg RSA -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Tia Release"
+
+          base64 -w 0 "$RUNNER_TEMP/tia-release.jks" \
+            > "$RUNNER_TEMP/keystore-base64.txt"
+
+      - name: Upload temporary key data
+        uses: actions/upload-artifact@v4
+        with:
+          name: tia-key-setup
+          path: ${{ runner.temp }}/keystore-base64.txt
+          retention-days: 1
