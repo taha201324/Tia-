@@ -29,33 +29,81 @@ jobs:
           cache: true
 
       - name: Unzip and create Android project
+        shell: bash
         run: |
-          set -eu
+          set -euo pipefail
+
           mkdir -p unzipped
-          ZIP=$(find . -maxdepth 1 -name '*.zip' | head -1)
+          ZIP=$(find . -maxdepth 1 -type f -name '*.zip' | head -1)
           test -n "$ZIP"
+
           unzip -q -o "$ZIP" -d unzipped
-          SRC=$(dirname "$(find unzipped -name pubspec.yaml | head -1)")
-          test -f "$SRC/pubspec.yaml"
+
+          PUBSPEC=$(find unzipped -name pubspec.yaml -type f | head -1)
+          test -n "$PUBSPEC"
+          SRC=$(dirname "$PUBSPEC")
+
           flutter create --platforms=android --project-name tia app
+
           cp "$SRC/pubspec.yaml" app/pubspec.yaml
           rm -rf app/lib
           cp -r "$SRC/lib" app/lib
+
           if [ -d "$SRC/assets" ]; then
             cp -r "$SRC/assets" app/assets
           fi
-          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' app/android/app/src/main/AndroidManifest.xml
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' app/android/app/build.gradle*
-          sed -i 's#android:label="[^"]*"#android:label="Tia"#' app/android/app/src/main/AndroidManifest.xml
 
-      - name: Configure release signing
+          sed -i \
+            's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' \
+            app/android/app/src/main/AndroidManifest.xml
+
+          sed -i \
+            's/minSdk = flutter.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' \
+            app/android/app/build.gradle*
+
+          sed -i \
+            's#android:label="[^"]*"#android:label="Tia"#' \
+            app/android/app/src/main/AndroidManifest.xml
+
+      - name: Raise compileSdk for plugins
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f app/android/build.gradle.kts
+
+          cat > /tmp/hack.kts <<'EOF'
+          subprojects {
+              afterEvaluate {
+                  val ext = extensions.findByName("android")
+                  if (ext != null) {
+                      val m = ext.javaClass.methods.firstOrNull {
+                          (it.name == "setCompileSdk" ||
+                           it.name == "compileSdkVersion" ||
+                           it.name == "compileSdk") &&
+                          it.parameterCount == 1 &&
+                          (it.parameterTypes[0] == Int::class.javaPrimitiveType ||
+                           it.parameterTypes[0] == Int::class.javaObjectType)
+                      }
+                      m?.invoke(ext, 36)
+                  }
+              }
+          }
+          EOF
+
+          cat /tmp/hack.kts app/android/build.gradle.kts > /tmp/new.kts
+          mv /tmp/new.kts app/android/build.gradle.kts
+
+      - name: Prepare release keystore
+        shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          set -eu
+          set -euo pipefail
+
           test -n "$KEYSTORE_BASE64"
           test -n "$STORE_PASSWORD"
           test -n "$KEY_PASSWORD"
@@ -64,34 +112,59 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" \
             | base64 --decode > "$RUNNER_TEMP/tia-release.jks"
 
-          cat > app/android/key.properties <<EOF
-          storePassword=$STORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=$RUNNER_TEMP/tia-release.jks
-          EOF
+          keytool -list \
+            -keystore "$RUNNER_TEMP/tia-release.jks" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" > /dev/null
 
-      - name: Configure Gradle release signing
+          {
+            printf 'storePassword=%s\n' "$STORE_PASSWORD"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/tia-release.jks"
+          } > app/android/key.properties
+
+      - name: Configure Kotlin release signing
+        shell: bash
         run: |
+          set -euo pipefail
+
           python3 - <<'PY'
           from pathlib import Path
 
           p = Path("app/android/app/build.gradle.kts")
-          if p.exists():
-              s = p.read_text()
-              block = '''
-          import java.util.Properties
-          import java.io.FileInputStream
+          s = p.read_text()
 
-          val keystoreProperties = Properties()
-          val keystorePropertiesFile = rootProject.file("key.properties")
-          keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+          required_imports = (
+              "import java.util.Properties",
+              "import java.io.FileInputStream",
+          )
 
+          imports = []
+          for item in required_imports:
+              if item not in s:
+                  imports.append(item)
+
+          if imports:
+              s = "\n".join(imports) + "\n" + s
+
+          properties_code = '''
+          val keystoreProperties = Properties().apply {
+              load(FileInputStream(rootProject.file("key.properties")))
+          }
           '''
-              if "val keystoreProperties =" not in s:
-                  s = block + s
 
-              signing = '''
+          if "val keystoreProperties =" not in s:
+              marker = "\nandroid {"
+              if marker not in s:
+                  raise SystemExit("Could not find android block")
+              s = s.replace(
+                  marker,
+                  "\n" + properties_code + marker,
+                  1
+              )
+
+          signing_code = '''
               signingConfigs {
                   create("release") {
                       keyAlias = keystoreProperties["keyAlias"] as String
@@ -100,71 +173,58 @@ jobs:
                       storePassword = keystoreProperties["storePassword"] as String
                   }
               }
-          '''
-              if 'signingConfig = signingConfigs.getByName("release")' not in s:
-                  s = s.replace(
-                      'buildTypes {',
-                      signing + '\\n    buildTypes {',
-                      1
-                  )
-                  s = s.replace(
-                      'buildTypes {',
-                      'buildTypes {\\n        release { signingConfig = signingConfigs.getByName("release") }',
-                      1
-                  )
-              p.write_text(s)
-          else:
-              p = Path("app/android/app/build.gradle")
-              s = p.read_text()
-              block = '''
-          def keystoreProperties = new Properties()
-          def keystorePropertiesFile = rootProject.file("key.properties")
-          keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-          '''
-              if "def keystoreProperties =" not in s:
-                  s = block + s
-              signing = '''
-              signingConfigs {
-                  release {
-                      keyAlias keystoreProperties['keyAlias']
-                      keyPassword keystoreProperties['keyPassword']
-                      storeFile file(keystoreProperties['storeFile'])
-                      storePassword keystoreProperties['storePassword']
-                  }
-              }
-          '''
-              if 'signingConfig signingConfigs.release' not in s:
-                  s = s.replace('buildTypes {',
-                      signing + '\\n    buildTypes {\\n        release { signingConfig signingConfigs.release }',
-                      1)
-              p.write_text(s)
-          PY
 
-      - name: Raise compileSdk for plugins
-        run: |
-          set -eu
-          if [ -f app/android/build.gradle.kts ]; then
-            cat /tmp/hack.kts 2>/dev/null || true
-          fi
+          '''
+
+          if 'create("release")' not in s:
+              marker = "    buildTypes {"
+              if marker not in s:
+                  raise SystemExit("Could not find buildTypes block")
+              s = s.replace(marker, signing_code + marker, 1)
+
+          debug_line = 'signingConfig = signingConfigs.getByName("debug")'
+          release_line = 'signingConfig = signingConfigs.getByName("release")'
+
+          if debug_line in s:
+              s = s.replace(debug_line, release_line, 1)
+          elif release_line not in s:
+              raise SystemExit("Could not find the release signing line")
+
+          p.write_text(s)
+          print("Release signing configuration applied")
+          PY
 
       - name: Build signed release APK
         working-directory: app
+        shell: bash
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
+          set -euo pipefail
+
           flutter pub get
           dart run flutter_launcher_icons
+
           flutter build apk --release \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
 
       - name: Verify APK signature
+        shell: bash
         run: |
+          set -euo pipefail
+
           APK="app/build/app/outputs/flutter-apk/app-release.apk"
           test -f "$APK"
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" \
+            -type f -name apksigner | sort -V | tail -1)
+
+          test -n "$APKSIGNER"
           "$APKSIGNER" verify --verbose "$APK"
+
+          echo "APK signature verification passed."
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
@@ -172,3 +232,4 @@ jobs:
           name: Tia-release-apk
           path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+          retention-days: 7
