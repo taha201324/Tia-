@@ -1,4 +1,3 @@
-
 name: Build Tia Release APK
 
 on:
@@ -54,7 +53,7 @@ jobs:
           fi
 
           sed -i \
-            's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' \
+            's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.READ_CONTACTS"/>\n    <application#' \
             app/android/app/src/main/AndroidManifest.xml
 
           sed -i \
@@ -222,7 +221,7 @@ jobs:
             -type f -name apksigner | sort -V | tail -1)
 
           test -n "$APKSIGNER"
-          "$APKSIGNER" verify --verbose "$APK"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
 
           echo "APK signature verification passed."
 
