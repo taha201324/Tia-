@@ -205,7 +205,7 @@ jobs:
           flutter pub get
           dart run flutter_launcher_icons
 
-          flutter build apk --release \
+          flutter build apk --release --no-shrink \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
 
