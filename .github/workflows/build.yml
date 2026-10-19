@@ -42,7 +42,7 @@ jobs:
           test -n "$PUBSPEC"
           SRC=$(dirname "$PUBSPEC")
 
-          flutter create --platforms=android --project-name tia app
+          flutter create --org com.taha --platforms=android --project-name tia app
 
           cp "$SRC/pubspec.yaml" app/pubspec.yaml
           rm -rf app/lib
@@ -53,7 +53,7 @@ jobs:
           fi
 
           sed -i \
-            's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.READ_CONTACTS"/>\n    <application#' \
+            's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.READ_CONTACTS"/>\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>\n    <application#' \
             app/android/app/src/main/AndroidManifest.xml
 
           sed -i \
