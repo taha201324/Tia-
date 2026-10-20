@@ -42,7 +42,7 @@ jobs:
           test -n "$PUBSPEC"
           SRC=$(dirname "$PUBSPEC")
 
-          flutter create --org com.taha --platforms=android --project-name tia app
+          flutter create --org com.example --platforms=android --project-name tia app
 
           cp "$SRC/pubspec.yaml" app/pubspec.yaml
           rm -rf app/lib
