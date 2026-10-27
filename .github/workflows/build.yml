@@ -16,7 +16,18 @@ jobs:
           channel: stable
       - name: Create Android project and add sources
         run: |
-          F=$(find . -type f -path '*/src/pubspec.yaml' -not -path './app/*' | head -1)
+          for z in ./*.zip; do
+            if [ -f "$z" ]; then
+              echo "Unzipping $z"
+              mkdir -p unz
+              unzip -oq "$z" -d unz
+            fi
+          done
+          if [ -f src/pubspec.yaml ]; then
+            F=./src/pubspec.yaml
+          else
+            F=$(find . -type f -path '*/src/pubspec.yaml' -not -path './app/*' | head -1)
+          fi
           if [ -z "$F" ]; then
             echo "src/pubspec.yaml not found. Files in repo:"
             find . -maxdepth 3 -not -path './.git*' | head -60
