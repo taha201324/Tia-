@@ -16,10 +16,18 @@ jobs:
           channel: stable
       - name: Create Android project and add sources
         run: |
+          F=$(find . -type f -path '*/src/pubspec.yaml' -not -path './app/*' | head -1)
+          if [ -z "$F" ]; then
+            echo "src/pubspec.yaml not found. Files in repo:"
+            find . -maxdepth 3 -not -path './.git*' | head -60
+            exit 1
+          fi
+          SRC=$(dirname "$F")
+          echo "Using sources from $SRC"
           flutter create --platforms=android --org com.example --project-name tia app
-          cp src/pubspec.yaml app/pubspec.yaml
-          rm -rf app/lib && cp -r src/lib app/lib
-          cp -r src/assets app/assets
+          cp "$SRC/pubspec.yaml" app/pubspec.yaml
+          rm -rf app/lib && cp -r "$SRC/lib" app/lib
+          cp -r "$SRC/assets" app/assets
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.READ_CONTACTS"/>\n    <application#' app/android/app/src/main/AndroidManifest.xml
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' app/android/app/build.gradle*
           sed -i 's#android:label="[^"]*"#android:label="Tia"#' app/android/app/src/main/AndroidManifest.xml
