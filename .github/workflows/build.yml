@@ -92,6 +92,26 @@ jobs:
           EOF2
           cat /tmp/hack.kts app/android/build.gradle.kts > /tmp/new.kts
           mv /tmp/new.kts app/android/build.gradle.kts
+      - name: Prepare plugins (add missing Android namespace)
+        working-directory: app
+        run: |
+          flutter pub get
+          for d in $(find "$HOME/.pub-cache" -type d -path '*/android' -not -path '*/example/*' 2>/dev/null); do
+            g=""
+            [ -f "$d/build.gradle" ] && g="$d/build.gradle"
+            [ -f "$d/build.gradle.kts" ] && g="$d/build.gradle.kts"
+            [ -z "$g" ] && continue
+            grep -q "namespace" "$g" && continue
+            m="$d/src/main/AndroidManifest.xml"
+            [ -f "$m" ] || continue
+            pkg=$(grep -o 'package="[^"]*"' "$m" | head -1 | sed 's/package="\(.*\)"/\1/')
+            [ -z "$pkg" ] && continue
+            echo "Adding namespace $pkg to $g"
+            case "$g" in
+              *.kts) sed -i "0,/^android {/s//android {\n    namespace = \"$pkg\"/" "$g" ;;
+              *) sed -i "0,/^android {/s//android {\n    namespace '$pkg'/" "$g" ;;
+            esac
+          done
       - name: Build APK
         working-directory: app
         env:
