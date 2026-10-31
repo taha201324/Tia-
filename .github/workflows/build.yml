@@ -39,9 +39,18 @@ jobs:
           cp "$SRC/pubspec.yaml" app/pubspec.yaml
           rm -rf app/lib && cp -r "$SRC/lib" app/lib
           cp -r "$SRC/assets" app/assets
+          if [ -d "$SRC/test" ]; then cp -r "$SRC/test" app/test; fi
+          echo "TIA_SRC=$SRC" >> "$GITHUB_ENV"
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.READ_CONTACTS"/>\n    <application#' app/android/app/src/main/AndroidManifest.xml
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' app/android/app/build.gradle*
           sed -i 's#android:label="[^"]*"#android:label="Tia"#' app/android/app/src/main/AndroidManifest.xml
+      - name: Install Tia Push native Android code (Kotlin service, manifest, OkHttp)
+        run: |
+          set -eu
+          test -d "$TIA_SRC/android_native" || (echo "android_native folder is missing from the zip" && exit 1)
+          python3 "$TIA_SRC/android_native/patch_android.py" app "$TIA_SRC/android_native"
+          echo "--- permissions and components in the manifest ---"
+          grep -n "FOREGROUND_SERVICE\|POST_NOTIFICATIONS\|PushService\|BootReceiver" app/android/app/src/main/AndroidManifest.xml
       - name: Verify package id
         run: |
           grep -rn "applicationId" app/android/app/build.gradle* | grep -q "com.example.tia" || (echo "package id is wrong" && exit 1)
@@ -112,6 +121,17 @@ jobs:
               *) sed -i "0,/^android {/s//android {\n    namespace '$pkg'/" "$g" ;;
             esac
           done
+      - name: Flutter analyze
+        working-directory: app
+        continue-on-error: true
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Flutter tests
+        working-directory: app
+        continue-on-error: true
+        run: |
+          if [ -d test ]; then flutter test; else echo "no Dart tests in this project"; fi
       - name: Build APK
         working-directory: app
         env:
@@ -126,6 +146,20 @@ jobs:
         run: |
           APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | sort -V | tail -1)
           $APKSIGNER verify --print-certs app/build/app/outputs/flutter-apk/app-release.apk | head -5
+      - name: Verify Tia Push is inside the APK
+        run: |
+          set -eu
+          APK=app/build/app/outputs/flutter-apk/app-release.apk
+          AAPT2=$(ls $ANDROID_HOME/build-tools/*/aapt2 | sort -V | tail -1)
+          $AAPT2 dump xmltree --file AndroidManifest.xml "$APK" > /tmp/manifest.txt
+          grep -q "PushService" /tmp/manifest.txt || (echo "PushService is missing from the APK manifest" && exit 1)
+          grep -q "POST_NOTIFICATIONS" /tmp/manifest.txt || (echo "POST_NOTIFICATIONS is missing" && exit 1)
+          # (grep -c reads the whole stream, so there is no SIGPIPE problem under "pipefail")
+          N1=$(unzip -p "$APK" 'classes*.dex' | grep -a -c "com/example/tia/push/PushService" || true)
+          N2=$(unzip -p "$APK" 'classes*.dex' | grep -a -c "okhttp3" || true)
+          [ "${N1:-0}" -gt 0 ] || (echo "PushService class is missing from dex" && exit 1)
+          [ "${N2:-0}" -gt 0 ] || (echo "OkHttp is missing from dex" && exit 1)
+          echo "Tia Push native service found in the APK"
       - uses: actions/upload-artifact@v4
         with:
           name: Tia-apk
